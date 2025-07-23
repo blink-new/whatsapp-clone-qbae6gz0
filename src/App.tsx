@@ -24,6 +24,13 @@ function App() {
 
   const initializeUser = useCallback(async (authUser: any) => {
     try {
+      console.log('Initializing user:', authUser)
+      
+      if (!authUser?.email) {
+        console.error('No email found in auth user')
+        return
+      }
+
       // Check if user exists in database
       const existingUsers = await blink.db.users.list({
         where: { email: authUser.email },
@@ -32,6 +39,7 @@ function App() {
 
       let user: User
       if (existingUsers.length > 0) {
+        console.log('Found existing user:', existingUsers[0])
         // Update existing user's online status
         await blink.db.users.update(existingUsers[0].id, {
           isOnline: true,
@@ -40,17 +48,18 @@ function App() {
 
         user = {
           id: existingUsers[0].id,
-          displayName: existingUsers[0].displayName,
+          displayName: existingUsers[0].displayName || authUser.email.split('@')[0],
           email: existingUsers[0].email,
-          avatarUrl: existingUsers[0].avatarUrl,
-          phoneNumber: existingUsers[0].phoneNumber,
-          statusMessage: existingUsers[0].statusMessage,
+          avatarUrl: existingUsers[0].avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email}`,
+          phoneNumber: existingUsers[0].phoneNumber || '',
+          statusMessage: existingUsers[0].statusMessage || 'Hey there! I am using WhatsApp.',
           isOnline: true,
           lastSeen: Date.now()
         }
       } else {
+        console.log('Creating new user for:', authUser.email)
         // Create new user
-        const userId = `user_${Date.now()}`
+        const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         const newUser = {
           id: userId,
           email: authUser.email,
@@ -65,6 +74,7 @@ function App() {
         }
 
         await blink.db.users.create(newUser)
+        console.log('Created new user:', newUser)
 
         user = {
           id: newUser.id,
@@ -78,20 +88,37 @@ function App() {
         }
       }
 
+      console.log('Setting current user:', user)
       setCurrentUser(user)
     } catch (error) {
       console.error('Error initializing user:', error)
+      // Set a fallback user to prevent infinite loading
+      if (authUser?.email) {
+        const fallbackUser: User = {
+          id: `fallback_${Date.now()}`,
+          displayName: authUser.displayName || authUser.email.split('@')[0],
+          email: authUser.email,
+          avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email}`,
+          phoneNumber: '',
+          statusMessage: 'Hey there! I am using WhatsApp.',
+          isOnline: true,
+          lastSeen: Date.now()
+        }
+        setCurrentUser(fallbackUser)
+      }
     }
   }, [])
 
   useEffect(() => {
     const unsubscribe = blink.auth.onAuthStateChanged((state) => {
-      if (state.user) {
+      console.log('Auth state changed:', state)
+      setIsLoading(state.isLoading)
+      
+      if (state.isAuthenticated && state.user) {
         initializeUser(state.user)
-      } else {
+      } else if (!state.isLoading) {
         setCurrentUser(null)
       }
-      setIsLoading(state.isLoading)
     })
     return unsubscribe
   }, [initializeUser])
